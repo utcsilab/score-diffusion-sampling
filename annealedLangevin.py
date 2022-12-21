@@ -2,9 +2,9 @@ import numpy as np
 import torch
 from tqdm import tqdm as tqdm
 
-def annealedLangevin(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator, norm_operator):
+def ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator, norm_operator):
     
-    K = config.model.num_channels
+    K = config.model.K
     step_images = []
     oracle_log = np.zeros((config.num_steps, K))
 
@@ -41,32 +41,31 @@ def annealedLangevin(diffuser, config, Y, oracle, current, forward_operator, adj
                 if (config.prior_sampling == 1):
                     config.noise_boost = 1            
                 
-                # else:
-                #     # Compute gradient for measurements in un-normalized space
-                #     current_norm = current * config.inference.norm_operator
-                #     H_forw = forward_operator(current_norm) 
-                #     H_adj = adjoint_operator(H_forw - Y)
+                else:
+                    # Compute gradient for measurements in un-normalized space
+                    current_norm = current * config.inference.norm_operator
+                    H_forw = forward_operator(current_norm) 
+                    H_adj = adjoint_operator(H_forw - Y)
 
-                #     # Re-normalize gradient to match score model
-                #     meas_grad = norm_operator(H_adj, config)
+                    # Re-normalize gradient to match score model
+                    meas_grad = norm_operator(H_adj, config)
 
                 # Annealing noise
                 grad_noise = np.sqrt(2 * alpha * config.noise_boost) * torch.randn_like(current) 
                 
                 # Apply update
                 current = current + alpha * (score - (meas_grad / config.dc_boost)) + grad_noise
-                # loss = (torch.sum(torch.square(torch.abs(current - oracle)), dim=(-1, -2)) / torch.sum(torch.square(torch.abs(oracle)), dim=(-1, -2))).cpu().numpy()
-                loss = torch.zeros(current.shape)
+                loss = (torch.sum(torch.square(torch.abs(current - oracle)), dim=(-1, -2)) / torch.sum(torch.square(torch.abs(oracle)), dim=(-1, -2))).cpu().numpy()
                 
-            # # Store Min Loss Image
-            # for i in range(len(loss)):
-            #     if (loss[i] < min_loss[i]):
-            #         min_loss[i] = loss[i]
-            #         min_loss_idx[i] = step_idx
-            #         min_loss_img[i] = current[i]
+            # Store Min Loss Image
+            for i in range(len(loss)):
+                if (loss[i] < min_loss[i]):
+                    min_loss[i] = loss[i]
+                    min_loss_idx[i] = step_idx
+                    min_loss_img[i] = current[i]
                         
-            # # Store loss
-            # oracle_log[step_idx] = loss
+            # Store loss
+            oracle_log[step_idx] = loss
             
             if step_idx % 100 == 0:
                 step_images.append(current)
