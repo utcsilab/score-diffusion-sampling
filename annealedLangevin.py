@@ -1,16 +1,17 @@
-import numpy as np
 import torch
+import numpy as np
 from tqdm import tqdm as tqdm
 
 def ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator, norm_operator):
     
     K = config.model.K
     step_images = []
-    oracle_log = np.zeros((config.num_steps, K))
+    oracle_log = torch.zeros((config.num_steps, K))
+    oracle_flatten = oracle.flatten(start_dim=1)
 
-    min_loss_img = torch.zeros((K, current.shape[1], current.shape[2]), dtype=torch.complex64)
-    min_loss_idx = torch.ones(K) * torch.inf
-    min_loss = np.ones(K) * np.inf
+    min_nrmse_img = torch.zeros((K, current.shape[1], current.shape[2]), dtype=torch.complex64)
+    min_nrmse_idx = torch.ones(K) * torch.inf
+    min_nrmse = torch.ones(K) * torch.inf
     meas_grad = 0
 
     with torch.no_grad():
@@ -55,24 +56,28 @@ def ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator
                 
                 # Apply update
                 current = current + alpha * (score - (meas_grad / config.dc_boost)) + grad_noise
-                loss = (torch.sum(torch.square(torch.abs(current - oracle)), dim=(-1, -2)) / torch.sum(torch.square(torch.abs(oracle)), dim=(-1, -2))).cpu().numpy()
+                current_flatten = current.flatten(start_dim=1)
+
+                # NRMSE
+                nrmse = (torch.norm((oracle_flatten - current_flatten), dim=1) / torch.norm(oracle_flatten, dim=1))
                 
-            # Store Min Loss Image
-            for i in range(len(loss)):
-                if (loss[i] < min_loss[i]):
-                    min_loss[i] = loss[i]
-                    min_loss_idx[i] = step_idx
-                    min_loss_img[i] = current[i]
+            # Store Min NRMSE Image
+            for i in range(len(nrmse)):
+                if (nrmse[i] < min_nrmse[i]):
+                    min_nrmse[i] = nrmse[i]
+                    min_nrmse_idx[i] = step_idx
+                    min_nrmse_img[i] = current[i]
                         
-            # Store loss
-            oracle_log[step_idx] = loss
+            # Store NRMSE
+            oracle_log[step_idx] = nrmse
             
             if step_idx % 100 == 0:
+                print('\nStep %d, NRMSE %3f' % (step_idx, nrmse.mean(dim=0)))
                 step_images.append(current)
     
-    return {'min_loss_img': min_loss_img, 
-            'min_loss_idx': min_loss_idx,
-            'min_loss': min_loss,
+    return {'min_nrmse_img': min_nrmse_img, 
+            'min_nrmse_idx': min_nrmse_idx,
+            'min_nrmse': min_nrmse,
             'step_images': step_images,
             'oracle_log': oracle_log,
             'Y': Y}

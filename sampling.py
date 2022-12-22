@@ -14,9 +14,8 @@ args = DotMap(json.load(open(parser.parse_args().config_path)))
 from tqdm import tqdm as tqdm
 from ncsnv2.models.ncsnv2 import NCSNv2Deepest, NCSNv2Deeper, NCSNv2
 
-from loaders          import *
 from annealedLangevin import ald
-from utils            import MulticoilForwardMRI
+from utils            import *
 
 # Always !!!
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -50,7 +49,7 @@ config.sampling.steps_each = 4
 # Range of SNR, test channels and hyper-parameters
 snr_range          = np.array(args.snr_range)
 noise_range        = 10 ** (-snr_range / 10.)
-config.model.K     = args.K 
+config.model.K     = args.channels
 
 # Get a model
 if args.depth == 'large':
@@ -85,13 +84,13 @@ if config.model.step_size == 0:
     config.model.step_size    = fixed_step_size
 
 # Global results
-result_dir = './results/' + args.sampling_file
+result_dir = './results/' + args.file + '/' + args.target_model.split("/")[-2]
 
 if not os.path.isdir(result_dir):
     os.makedirs(result_dir)
 
-MRI_model = MulticoilForwardMRI()
-Y, oracle, forward_operator, adjoint_operator, norm_operator = MRI_model.DataLoader(config)
+forward_model = globals()[args.forward_class]()
+Y, oracle, forward_operator, adjoint_operator, norm_operator = forward_model.DataLoader(config)
 adjoint_image = adjoint_operator(Y)
 
 # batch size now changed to 3 for 3 different alpha basises
@@ -101,7 +100,7 @@ init_val_X = torch.complex(real, imag).cuda()
 
 normalize_values = []
 for k in range(config.model.K):
-    normalize_values.append(torch.quantile(torch.abs(adjoint_image[k,:,:]), 0.95))
+    normalize_values.append(torch.quantile(torch.abs(adjoint_image[k,:,:]), args.normalization))
 
 normalize_values_tensor = torch.tensor(normalize_values).cuda()
 config.inference.norm_operator = normalize_values_tensor[:,None,None]
@@ -125,4 +124,4 @@ save_dict = {'snr_range': snr_range,
             'oracle_H': oracle,
             'best_images': best_images}
 
-torch.save(save_dict, result_dir + '/sigma_begin293_sigma_end0.0007_num_classes2311.0_sigma_rate0.9944_epochs300.0.pt')
+torch.save(save_dict, result_dir + '/' + args.sampling_file + '.pt')
