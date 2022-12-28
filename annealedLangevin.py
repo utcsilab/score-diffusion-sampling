@@ -18,7 +18,7 @@ def ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator
             config.sampling.current_sigma = current_sigma
             
             # Compute alpha
-            alpha = config.sampling.step_size * (current_sigma / config.model.sigma_end) ** 2
+            alpha = torch.tensor(config.sampling.step_size * (current_sigma / config.model.sigma_end) ** 2)
                 
             # Labels for diffusion model
             labels = torch.ones(current.shape[0]).cuda() * (step_idx + config.sampling.sigma_offset)
@@ -34,6 +34,7 @@ def ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator
                 
                 # View as complex
                 score = torch.view_as_complex(score.permute(0, 2, 3, 1).contiguous())
+                config.sampling.score = score
 
                 if (config.sampling.prior_sampling == 0):
                     # Compute gradient for measurements in un-normalized space

@@ -34,6 +34,7 @@ config = contents['config']
 config.sampling = args.sampling
 config.sampling.sigma = 0.
 config.sampling.num_steps = config.model.num_classes - config.sampling.sigma_offset
+config.model.depth = args.model.depth
 
 # Range of SNR, test channels and hyper-parameters
 config.sampling.noise_range = 10 ** (-torch.tensor(config.sampling.snr_range) / 10.)
@@ -70,10 +71,11 @@ if not config.sampling.step_size:
     fixed_step_size = candidate_steps[best_idx]
     config.sampling.step_size    = torch.tensor(fixed_step_size)
 
+config.data = args.data
 print('Dataset: ' + config.data.file)
 print('Dataloader: ' + config.data.dataloader)
 print('Forward Class: ' + config.sampling.forward_class)
-print('\nStep Size: ' + str(fixed_step_size) + '\n') 
+print('\nStep Size: ' + str(np.float64(config.sampling.step_size)) + '\n') 
 
 # Global results
 result_dir = './results/' + config.data.file + '/' + config.sampling.target_model.split("/")[-2]
