@@ -20,43 +20,30 @@ from utils            import *
 # Always !!!
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32       = True
-
-# Sometimes
-torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.benchmark        = True
 
 # GPU
 os.environ["CUDA_DEVICE_ORDER"]    = "PCI_BUS_ID";
-os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu);
+os.environ["CUDA_VISIBLE_DEVICES"] = str(args.model.gpu);
 
 # Target weights - replace with target model
-target_weights = args.target_model
-contents = torch.load(target_weights)
+contents = torch.load(args.sampling.target_model)
 
 # Extract config
 config = contents['config']
-config.sampling.sigma = 0. # Nothing here
-config.data.sampling_path = args.sampling_path
-config.data.sampling_file = args.sampling_file
-
-# !!! 'Beta' in paper
-config.noise_boost = args.noise_boost
-config.sigma_offset = args.sigma_offset
-config.dc_boost = args.dc_boost
-config.model.step_size = args.step_size
-config.num_steps = config.model.num_classes - config.sigma_offset
-config.sampling.steps_each = 4
+config.sampling = args.sampling
+config.sampling.sigma = 0.
+config.sampling.num_steps = config.model.num_classes - config.sampling.sigma_offset
 
 # Range of SNR, test channels and hyper-parameters
-snr_range          = np.array(args.snr_range)
-noise_range        = 10 ** (-snr_range / 10.)
-config.model.K     = args.channels
+config.sampling.noise_range = 10 ** (-torch.tensor(config.sampling.snr_range) / 10.)
 
 # Get a model
-if args.depth == 'large':
+if config.model.depth == 'large':
     diffuser = NCSNv2Deepest(config)
-elif args.depth == 'medium':
+elif config.model.depth == 'medium':
     diffuser = NCSNv2Deeper(config)
-elif args.depth == 'low':
+elif config.model.depth == 'low':
     diffuser = NCSNv2(config)
 
 diffuser = diffuser.cuda()
@@ -64,7 +51,7 @@ diffuser = diffuser.cuda()
 diffuser.load_state_dict(contents['model_state']) 
 diffuser.eval()
 
-if config.model.step_size == 0:
+if not config.sampling.step_size:
     # Choose the core step size (epsilon) according to [Song '20]
     candidate_steps = np.logspace(-11, -7, 10000)
     step_criterion  = np.zeros((len(candidate_steps)))
@@ -81,47 +68,48 @@ if config.model.step_size == 0:
         
     best_idx        = np.argmin(np.abs(step_criterion - 1.))
     fixed_step_size = candidate_steps[best_idx]
-    config.model.step_size    = fixed_step_size
+    config.sampling.step_size    = torch.tensor(fixed_step_size)
+
+print('Dataset: ' + config.data.file)
+print('Dataloader: ' + config.data.dataloader)
+print('Forward Class: ' + config.sampling.forward_class)
+print('\nStep Size: ' + str(fixed_step_size) + '\n') 
 
 # Global results
-result_dir = './results/' + args.file + '/' + args.target_model.split("/")[-2]
+result_dir = './results/' + config.data.file + '/' + config.sampling.target_model.split("/")[-2]
 
 if not os.path.isdir(result_dir):
     os.makedirs(result_dir)
 
-forward_model = globals()[args.forward_class]()
+forward_model = globals()[config.sampling.forward_class]()
 Y, oracle, forward_operator, adjoint_operator, norm_operator = forward_model.DataLoader(config)
-adjoint_image = adjoint_operator(Y)
 
-# batch size now changed to 3 for 3 different alpha basises
-real = torch.randn(config.model.K, oracle.shape[1], oracle.shape[2], dtype = torch.float)
-imag = torch.randn(config.model.K, oracle.shape[1], oracle.shape[2], dtype= torch.float)
+real = torch.randn(config.sampling.channels, oracle.shape[1], oracle.shape[2], dtype = torch.float)
+imag = torch.randn(config.sampling.channels, oracle.shape[1], oracle.shape[2], dtype = torch.float)
 init_val_X = torch.complex(real, imag).cuda()
-
-normalize_values = []
-for k in range(config.model.K):
-    normalize_values.append(torch.quantile(torch.abs(adjoint_image[k,:,:]), args.normalization))
-
-normalize_values_tensor = torch.tensor(normalize_values).cuda()
-config.inference.norm_operator = normalize_values_tensor[:,None,None]
 best_images = []
 
-# For each SNR value
-for snr_idx, local_noise in tqdm(enumerate(noise_range)):
+if config.sampling.prior_sampling == 1:
+    config.sampling.noise_range = [1]
+    config.sampling.noise_boost = 1
 
+# For each SNR value
+for snr_idx, local_noise in tqdm(enumerate(config.sampling.noise_range)):
+
+    print('\n\nSampling for SNR Level ' + str(snr_idx) + ': ' + str(config.sampling.snr_range[snr_idx]))
     # Starting with random noise
     current = init_val_X.clone()
-    config.local_noise = local_noise
+    config.sampling.local_noise = local_noise
     
     # Annealed Langevin Dynamics
-    best_images.append(ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator, norm_operator))
+    best_images.append(ald(diffuser, config, Y[snr_idx], oracle, current, forward_operator, adjoint_operator, norm_operator))
         
 torch.cuda.empty_cache()
 
 # Save results to file based on noise
-save_dict = {'snr_range': snr_range,
+save_dict = {'snr_range': config.sampling.snr_range,
             'config': config,
             'oracle_H': oracle,
             'best_images': best_images}
 
-torch.save(save_dict, result_dir + '/' + args.sampling_file + '.pt')
+torch.save(save_dict, result_dir + '/' + config.sampling.sampling_file + '.pt')
