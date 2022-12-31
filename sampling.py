@@ -78,7 +78,7 @@ print('Forward Class: ' + config.sampling.forward_class)
 print('\nStep Size: ' + str(np.float64(config.sampling.step_size)) + '\n') 
 
 # Global results
-result_dir = './results/' + config.data.file + '/' + config.sampling.target_model.split("/")[-2]
+result_dir = './results/' + config.data.file + '_' + config.data.dataloader + '/' + config.sampling.target_model.split("/")[-2]
 
 if not os.path.isdir(result_dir):
     os.makedirs(result_dir)
