@@ -31,10 +31,11 @@ contents = torch.load(args.sampling.target_model)
 
 # Extract config
 config = contents['config']
+config.model.depth = args.model.depth
 config.sampling = args.sampling
 config.sampling.sigma = 0.
+config.model.num_classes = args.model.num_classes
 config.sampling.num_steps = config.model.num_classes - config.sampling.sigma_offset
-config.model.depth = args.model.depth
 
 # Range of SNR, test channels and hyper-parameters
 config.sampling.noise_range = 10 ** (-torch.tensor(config.sampling.snr_range) / 10.)
@@ -47,6 +48,7 @@ elif config.model.depth == 'medium':
 elif config.model.depth == 'low':
     diffuser = NCSNv2(config)
 
+diffuser.sigmas = config.training.sigmas
 diffuser = diffuser.cuda()
 # !!! Load weights
 diffuser.load_state_dict(contents['model_state']) 
@@ -72,6 +74,7 @@ if not config.sampling.step_size:
     config.sampling.step_size    = torch.tensor(fixed_step_size)
 
 config.data = args.data
+config.training = args.training
 print('Dataset: ' + config.data.file)
 print('Dataloader: ' + config.data.dataloader)
 print('Forward Class: ' + config.sampling.forward_class)
