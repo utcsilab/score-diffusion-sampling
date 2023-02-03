@@ -54,7 +54,7 @@ diffuser = diffuser.cuda()
 diffuser.load_state_dict(contents['model_state']) 
 diffuser.eval()
 
-if not config.sampling.step_size:
+if not config.sampling.step_size or config.sampling.prior_sampling == 1:
     # Choose the core step size (epsilon) according to [Song '20]
     candidate_steps = np.logspace(-11, -7, 10000)
     step_criterion  = np.zeros((len(candidate_steps)))
@@ -75,10 +75,6 @@ if not config.sampling.step_size:
 
 config.data = args.data
 config.training = args.training
-print('Dataset: ' + config.data.file)
-print('Dataloader: ' + config.data.dataloader)
-print('Forward Class: ' + config.sampling.forward_class)
-print('\nStep Size: ' + str(np.float64(config.sampling.step_size)) + '\n') 
 
 # Global results
 result_dir = './results/' + config.data.file + '_' + config.data.dataloader + '/' + config.sampling.target_model.split("/")[-2]
@@ -86,21 +82,32 @@ result_dir = './results/' + config.data.file + '_' + config.data.dataloader + '/
 if not os.path.isdir(result_dir):
     os.makedirs(result_dir)
 
-forward_model = globals()[config.sampling.forward_class]()
-Y, oracle, forward_operator, adjoint_operator, norm_operator = forward_model.DataLoader(config)
+forward_model = None
+Y, oracle, forward_operator, adjoint_operator, norm_operator = None, None, None, None, None
 
-real = torch.randn(config.sampling.channels, oracle.shape[1], oracle.shape[2], dtype = torch.float)
-imag = torch.randn(config.sampling.channels, oracle.shape[1], oracle.shape[2], dtype = torch.float)
+print('Dataset: ' + config.data.file)
+print('Dataloader: ' + config.data.dataloader)
+
+if config.sampling.prior_sampling == 0:
+    print('Forward Class: ' + config.sampling.forward_class)
+    forward_model = globals()[config.sampling.forward_class]()
+    Y, oracle, forward_operator, adjoint_operator, norm_operator = forward_model.DataLoader(config)
+    config.sampling.oracle_shape = oracle.shape
+
+print('\nStep Size: ' + str(np.float64(config.sampling.step_size)) + '\n') 
+real = torch.randn(config.sampling.channels, config.sampling.oracle_shape[1], config.sampling.oracle_shape[2], dtype = torch.float)
+imag = torch.randn(config.sampling.channels, config.sampling.oracle_shape[1], config.sampling.oracle_shape[2], dtype = torch.float)
 init_val_X = torch.complex(real, imag).cuda()
 best_images = []
 
 if config.sampling.prior_sampling == 1:
     config.sampling.noise_range = [1]
     config.sampling.noise_boost = 1
+    oracle = init_val_X.clone()
+    Y = torch.zeros(len(config.sampling.noise_range))
 
 # For each SNR value
 for snr_idx, local_noise in tqdm(enumerate(config.sampling.noise_range)):
-
     print('\n\nSampling for SNR Level ' + str(snr_idx) + ': ' + str(config.sampling.snr_range[snr_idx]))
     # Starting with random noise
     current = init_val_X.clone()
