@@ -7,8 +7,8 @@ def ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator
     oracle_log = torch.zeros((config.sampling.num_steps, config.sampling.channels))
 
     min_nrmse_img = torch.zeros((config.sampling.channels, current.shape[1], current.shape[2]), dtype=torch.complex64)
-    min_nrmse_idx = torch.ones(config.sampling.channels) * torch.inf
-    min_nrmse = torch.ones(config.sampling.channels) * torch.inf
+    min_nrmse_idx = 0
+    min_nrmse = torch.inf
     meas_grad = 0
 
     with torch.no_grad():
@@ -55,17 +55,16 @@ def ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator
                 nrmse = (torch.sum(torch.square(torch.abs(current - oracle)), dim=(-1, -2)) / torch.sum(torch.square(torch.abs(oracle)), dim=(-1, -2)))
                 
             # Store Min NRMSE Image
-            for i in range(len(nrmse)):
-                if (nrmse[i] < min_nrmse[i]):
-                    min_nrmse[i] = nrmse[i]
-                    min_nrmse_idx[i] = step_idx
-                    min_nrmse_img[i] = current[i]
+            if (torch.mean(nrmse) < min_nrmse):
+                min_nrmse = torch.mean(nrmse)
+                min_nrmse_idx = step_idx
+                min_nrmse_img = current
                         
             # Store NRMSE
             oracle_log[step_idx] = nrmse
             
             if step_idx % 100 == 0:
-                print('\nStep %d, NRMSE %3f' % (step_idx, nrmse.mean()))
+                print('\nStep %d, NRMSE %3f' % (step_idx, torch.mean(nrmse)))
                 step_images.append(current)
     
     return {'min_nrmse_img': min_nrmse_img, 
