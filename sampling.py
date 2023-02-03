@@ -105,6 +105,7 @@ if config.sampling.prior_sampling == 1:
     config.sampling.noise_boost = 1
     oracle = init_val_X.clone()
     Y = torch.zeros(len(config.sampling.noise_range))
+    config.sampling.sampling_file = 'prior'
 
 # For each SNR value
 for snr_idx, local_noise in tqdm(enumerate(config.sampling.noise_range)):
