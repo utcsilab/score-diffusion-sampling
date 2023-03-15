@@ -48,7 +48,10 @@ elif config.model.depth == 'medium':
 elif config.model.depth == 'low':
     diffuser = NCSNv2(config)
 
-diffuser.sigmas = config.training.sigmas
+if config.training.sigmas is not None:
+    diffuser.sigmas = config.training.sigmas
+
+config.training.sigmas = diffuser.sigmas
 diffuser = diffuser.cuda()
 # !!! Load weights
 diffuser.load_state_dict(contents['model_state']) 
@@ -83,24 +86,24 @@ if not os.path.isdir(result_dir):
     os.makedirs(result_dir)
 
 forward_model = None
-Y, oracle, forward_operator, adjoint_operator, norm_operator = None, None, None, None, None
+Y, oracle, forward_operator, adjoint_operator = None, None, None, None
 
 print('Dataset: ' + config.data.file)
 print('Dataloader: ' + config.data.dataloader)
+print('\nStep Size: ' + str(np.float64(config.sampling.step_size)) + '\n') 
+best_images = []
 
 if config.sampling.prior_sampling == 0:
     print('Forward Class: ' + config.sampling.forward_class)
     forward_model = globals()[config.sampling.forward_class]()
-    Y, oracle, forward_operator, adjoint_operator, norm_operator = forward_model.DataLoader(config)
-    config.sampling.oracle_shape = oracle.shape
+    Y, oracle, forward_operator, adjoint_operator = forward_model.DataLoader(config)
+    config.sampling.channels = oracle.shape[0]
+    init_val_X = torch.randn_like(oracle).cuda()
 
-print('\nStep Size: ' + str(np.float64(config.sampling.step_size)) + '\n') 
-real = torch.randn(config.sampling.channels, config.sampling.oracle_shape[1], config.sampling.oracle_shape[2], dtype = torch.float)
-imag = torch.randn(config.sampling.channels, config.sampling.oracle_shape[1], config.sampling.oracle_shape[2], dtype = torch.float)
-init_val_X = torch.complex(real, imag).cuda()
-best_images = []
-
-if config.sampling.prior_sampling == 1:
+else:
+    real = torch.randn(config.sampling.channels, config.sampling.oracle_shape[0], config.sampling.oracle_shape[1], dtype = torch.float)
+    imag = torch.randn(config.sampling.channels, config.sampling.oracle_shape[0], config.sampling.oracle_shape[1], dtype = torch.float)
+    init_val_X = torch.complex(real, imag).cuda()
     config.sampling.noise_range = [1]
     config.sampling.noise_boost = 1
     oracle = init_val_X.clone()
@@ -108,14 +111,11 @@ if config.sampling.prior_sampling == 1:
     config.sampling.sampling_file = 'prior'
 
 # For each SNR value
-for snr_idx, local_noise in tqdm(enumerate(config.sampling.noise_range)):
+for snr_idx, config.sampling.local_noise in tqdm(enumerate(config.sampling.noise_range)):
+    # Starting with random noise and running Annealed Langevin Dynamics
     print('\n\nSampling for SNR Level ' + str(snr_idx) + ': ' + str(config.sampling.snr_range[snr_idx]))
-    # Starting with random noise
     current = init_val_X.clone()
-    config.sampling.local_noise = local_noise
-    
-    # Annealed Langevin Dynamics
-    best_images.append(ald(diffuser, config, Y[snr_idx], oracle, current, forward_operator, adjoint_operator, norm_operator))
+    best_images.append(ald(diffuser, config, Y[snr_idx], oracle, current, forward_operator, adjoint_operator))
         
 torch.cuda.empty_cache()
 

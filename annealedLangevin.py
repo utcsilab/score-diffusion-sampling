@@ -1,7 +1,7 @@
 import torch
 from tqdm import tqdm as tqdm
 
-def ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator, norm_operator):
+def ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator,):
     
     step_images = []
     oracle_log = torch.zeros((config.sampling.num_steps, config.sampling.channels))
@@ -13,11 +13,8 @@ def ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator
 
     with torch.no_grad():
         for step_idx in tqdm(range(config.sampling.num_steps)):
-            # Compute current step size and noise power
+            # Compute current step size, noise power and alpha
             current_sigma = diffuser.sigmas[step_idx + config.sampling.sigma_offset].item()
-            config.sampling.current_sigma = current_sigma
-            
-            # Compute alpha
             alpha = torch.tensor(config.sampling.step_size * (current_sigma / config.model.sigma_end) ** 2)
                 
             # Labels for diffusion model
@@ -28,30 +25,20 @@ def ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator
             for inner_idx in range(config.sampling.steps_each):
                 # Compute score
                 current_real = torch.view_as_real(current).permute(0, 3, 1, 2)
-
-                # Get score
                 score = diffuser(current_real, labels)
                 
                 # View as complex
                 score = torch.view_as_complex(score.permute(0, 2, 3, 1).contiguous())
-                config.sampling.score = score
 
                 if (config.sampling.prior_sampling == 0):
-                    # Compute gradient for measurements in un-normalized space
-                    current_norm = current * config.sampling.norm_operator
-                    H_forw = forward_operator(current_norm) 
+                    # Compute gradient and normalize
+                    H_forw = forward_operator(current) 
                     H_adj = adjoint_operator(H_forw - Y)
+                    meas_grad = (H_adj * config.sampling.dc_boost) / (config.sampling.local_noise/2. + current_sigma ** 2)
 
-                    # Re-normalize gradient to match score model
-                    meas_grad = norm_operator(H_adj, config)
-
-                # Annealing noise
+                # Annealing noise and update
                 grad_noise = torch.sqrt(2 * alpha * config.sampling.noise_boost) * torch.randn_like(current) 
-                
-                # Apply update
-                current = current + alpha * (score - (meas_grad / config.sampling.dc_boost)) + grad_noise
-
-                # NRMSE
+                current = current + alpha * (score - meas_grad) + grad_noise
                 nrmse = (torch.sum(torch.square(torch.abs(current - oracle)), dim=(-1, -2)) / torch.sum(torch.square(torch.abs(oracle)), dim=(-1, -2)))
                 
             # Store Min NRMSE Image
@@ -65,6 +52,9 @@ def ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator
             
             if step_idx % 100 == 0:
                 print('\nStep %d, NRMSE %3f' % (step_idx, torch.mean(nrmse)))
+                print('\nMeasurement Grad before Normalization: ' + str(round(float(torch.mean(torch.abs(H_adj))), 2)))
+                print('Measurement Grad after Normalization: ' + str(round(float(torch.mean(torch.abs(meas_grad))), 2)))
+                print('Score Power: ' + str(round(float(torch.mean(torch.abs(score))), 2)))
                 step_images.append(current)
     
     return {'min_nrmse_img': min_nrmse_img, 
