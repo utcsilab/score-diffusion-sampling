@@ -1,11 +1,9 @@
 import torch
 from tqdm import tqdm as tqdm
 
-def ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator,):
-    
+def ald(diffuser, config, Y_adj, oracle, current, forward_operator, adjoint_operator):
     step_images = []
     oracle_log = torch.zeros((config.sampling.num_steps, config.sampling.channels))
-
     min_nrmse_img = torch.zeros((config.sampling.channels, current.shape[1], current.shape[2]), dtype=torch.complex64)
     min_nrmse_idx = 0
     min_nrmse = torch.inf
@@ -26,15 +24,12 @@ def ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator
                 # Compute score
                 current_real = torch.view_as_real(current).permute(0, 3, 1, 2)
                 score = diffuser(current_real, labels)
-                
-                # View as complex
                 score = torch.view_as_complex(score.permute(0, 2, 3, 1).contiguous())
 
                 if (config.sampling.prior_sampling == 0):
                     # Compute gradient and normalize
-                    H_forw = forward_operator(current) 
-                    H_adj = adjoint_operator(H_forw - Y)
-                    meas_grad = (H_adj * config.sampling.dc_boost) / (config.sampling.local_noise/2. + current_sigma ** 2)
+                    H_adj = adjoint_operator(forward_operator(current))
+                    meas_grad = config.sampling.dc_boost * (H_adj - Y_adj) / (config.sampling.local_noise/2. + current_sigma ** 2)
 
                 # Annealing noise and update
                 grad_noise = torch.sqrt(2 * alpha * config.sampling.noise_boost) * torch.randn_like(current) 
@@ -52,14 +47,15 @@ def ald(diffuser, config, Y, oracle, current, forward_operator, adjoint_operator
             
             if step_idx % 100 == 0:
                 print('\nStep %d, NRMSE %3f' % (step_idx, torch.mean(nrmse)))
-                print('\nMeasurement Grad before Normalization: ' + str(round(float(torch.mean(torch.abs(H_adj))), 2)))
-                print('Measurement Grad after Normalization: ' + str(round(float(torch.mean(torch.abs(meas_grad))), 2)))
-                print('Score Power: ' + str(round(float(torch.mean(torch.abs(score))), 2)))
                 step_images.append(current)
+                if (config.sampling.prior_sampling == 0):
+                    print('\nMeasurement Grad before Normalization: ' + str(round(float(torch.mean(torch.abs(H_adj - Y_adj))), 2)))
+                    print('Measurement Grad after Normalization: ' + str(round(float(torch.mean(torch.abs(meas_grad))), 2)))
+                    print('Score Power: ' + str(round(float(torch.mean(torch.abs(score))), 2)))
     
     return {'min_nrmse_img': min_nrmse_img, 
             'min_nrmse_idx': min_nrmse_idx,
             'min_nrmse': min_nrmse,
             'step_images': step_images,
             'oracle_log': oracle_log,
-            'Y': Y}
+            'Y': Y_adj}

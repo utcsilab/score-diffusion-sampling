@@ -48,7 +48,7 @@ elif config.model.depth == 'medium':
 elif config.model.depth == 'low':
     diffuser = NCSNv2(config)
 
-if config.training.sigmas is not None:
+if len(config.training.sigmas) > 0:
     diffuser.sigmas = config.training.sigmas
 
 config.training.sigmas = diffuser.sigmas
@@ -86,7 +86,7 @@ if not os.path.isdir(result_dir):
     os.makedirs(result_dir)
 
 forward_model = None
-Y, oracle, forward_operator, adjoint_operator = None, None, None, None
+Y_adj, oracle, forward_operator, adjoint_operator = None, None, None, None
 
 print('Dataset: ' + config.data.file)
 print('Dataloader: ' + config.data.dataloader)
@@ -96,7 +96,7 @@ best_images = []
 if config.sampling.prior_sampling == 0:
     print('Forward Class: ' + config.sampling.forward_class)
     forward_model = globals()[config.sampling.forward_class]()
-    Y, oracle, forward_operator, adjoint_operator = forward_model.DataLoader(config)
+    Y_adj, oracle, forward_operator, adjoint_operator = forward_model.DataLoader(config)
     config.sampling.channels = oracle.shape[0]
     init_val_X = torch.randn_like(oracle).cuda()
 
@@ -107,7 +107,7 @@ else:
     config.sampling.noise_range = [1]
     config.sampling.noise_boost = 1
     oracle = init_val_X.clone()
-    Y = torch.zeros(len(config.sampling.noise_range))
+    Y_adj = torch.zeros(len(config.sampling.noise_range))
     config.sampling.sampling_file = 'prior'
 
 # For each SNR value
@@ -115,7 +115,7 @@ for snr_idx, config.sampling.local_noise in tqdm(enumerate(config.sampling.noise
     # Starting with random noise and running Annealed Langevin Dynamics
     print('\n\nSampling for SNR Level ' + str(snr_idx) + ': ' + str(config.sampling.snr_range[snr_idx]))
     current = init_val_X.clone()
-    best_images.append(ald(diffuser, config, Y[snr_idx], oracle, current, forward_operator, adjoint_operator))
+    best_images.append(ald(diffuser, config, Y_adj[snr_idx], oracle, current, forward_operator, adjoint_operator))
         
 torch.cuda.empty_cache()
 
