@@ -38,7 +38,7 @@ config.model.num_classes = args.model.num_classes
 config.sampling.num_steps = config.model.num_classes - config.sampling.sigma_offset
 
 # Range of SNR, test channels and hyper-parameters
-config.sampling.noise_range = 10 ** (-torch.tensor(config.sampling.snr_range) / 10.)
+config.sampling.noise_range = 10 ** (-torch.tensor(config.sampling.snr_range) / 10.) * config.sampling.oracle_shape[-1]
 
 # Get a model
 if config.model.depth == 'large':
