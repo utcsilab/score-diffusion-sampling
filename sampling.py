@@ -3,6 +3,7 @@
 
 import numpy as np
 from dotmap import DotMap
+from ncsnv2.models.ema    import EMAHelper
 import torch, sys, os, json, argparse
 sys.path.append('.')
 
@@ -53,8 +54,16 @@ if len(config.training.sigmas) > 0:
 
 config.training.sigmas = diffuser.sigmas
 diffuser = diffuser.cuda()
+
 # !!! Load weights
-diffuser.load_state_dict(contents['model_state']) 
+try:
+    contents['ema_state']['sigmas'] = config.training.sigmas
+    diffuser.load_state_dict(contents['ema_state'])
+
+except:
+    diffuser.load_state_dict(contents['model_state']) 
+    print('Failed to load EMA, defaulting to Model State')
+
 diffuser.eval()
 
 if not config.sampling.step_size or config.sampling.prior_sampling == 1:

@@ -34,7 +34,7 @@ def ald(diffuser, config, Y_adj, oracle, current, forward_operator, adjoint_oper
                 # Annealing noise and update
                 grad_noise = torch.sqrt(2 * alpha * config.sampling.noise_boost) * torch.randn_like(current) 
                 current = current + alpha * (score - meas_grad) + grad_noise
-                nrmse = (torch.sum(torch.square(torch.abs(current - oracle)), dim=(-1, -2)) / torch.sum(torch.square(torch.abs(oracle)), dim=(-1, -2)))
+                nrmse = torch.linalg.norm(oracle-current) / torch.linalg.norm(oracle)
                 
             # Store Min NRMSE Image
             if (torch.mean(nrmse) < min_nrmse):
